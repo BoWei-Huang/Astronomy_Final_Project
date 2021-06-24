@@ -34,7 +34,7 @@ float num_force_x[N_total][N_total][N_total]={};//Define Grid Force with Buffer
 float num_force_y[N_total][N_total][N_total]={};
 float num_force_z[N_total][N_total][N_total]={};
 
-//Define Weighting Function
+//Define Weighting Function (CIC) 
 float W(float x_p,float x_g ){
     float d=fabs(x_p-x_g);
     float w=0;
@@ -58,8 +58,8 @@ int re(int i){
     return p;
 }
 
-
-void inti()//初始條件定義 
+//初始條件定義 
+void inti()
 {
 //Define Mass
     for (int i=0;i<n;i++){
@@ -102,8 +102,8 @@ void total_mass_particle()//Calcaulate the total mass of particle
 for (int i = 0; i<n; i++){
 	total = total+ m[i];
 	}
-	printf ("the total mass of particle : %.2f \n " , total);
-	printf ("\n");
+	//printf ("the total mass of particle : %.2f \n " , total);
+	//printf ("\n");
 }
 
 void total_mass_grid()//Calcaulate the total mass of grid
@@ -116,15 +116,15 @@ for (int i=0 ; i<N;i++){
 			}
 		}
 	}
-   printf ("the total mass of particle in grid : %.2f \n " , total_array);
-   printf ("\n");	
+  // printf ("the total mass of particle in grid : %.2f \n " , total_array);
+  // printf ("\n");	
 }
 
 void error_mass()//Calcaulate the mass error
 {
 float error = total - total_array ;
-	printf ("the error of mass : %.2f \n " ,error );
-	printf ("\n");	
+//	printf ("the error of mass : %.2f \n " ,error );
+//	printf ("\n");	
 }
 
 void NGP_par_mesh()//NGP for particle mesh
@@ -323,7 +323,7 @@ void NGP_force()//NGP for return force
 		particle_force[i][1] = grid_force_y[x_pos][y_pos][z_pos];
 		particle_force[i][2] = grid_force_z[x_pos][y_pos][z_pos];
 
-		printf("the force one the particle %d\n Fx = %.2f Fy = %.2f Fz = %.2f \n",i ,particle_force[i][0],particle_force[i][1],particle_force[i][2]);
+	//	printf("the force one the particle %d\n Fx = %.2f Fy = %.2f Fz = %.2f \n",i ,particle_force[i][0],particle_force[i][1],particle_force[i][2]);
 	}
 }
 
@@ -368,10 +368,12 @@ void CIC_force()//CIC for return force
 				}
             }
         }
-        printf("the force one the particle %d\n Fx = %.2f Fy = %.2f Fz = %.2f \n",i ,particle_force[i][0],particle_force[i][1],particle_force[i][2]);
+       // printf("the force one the particle %d\n Fx = %.2f Fy = %.2f Fz = %.2f \n",i ,particle_force[i][0],particle_force[i][1],particle_force[i][2]);
     }
 }
 
+
+//main 
 int main( int argc, char *argv[] )
 {
 //Time counter
@@ -418,7 +420,7 @@ printf ("\n");
 //time counter
 tf= omp_get_wtime() ;
 double time = tf-ti ;
-printf("Take time : %.8f s",time);
+//printf("Take time : %.8f s",time);
 
     return EXIT_SUCCESS;
 }
