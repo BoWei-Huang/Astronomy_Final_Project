@@ -12,7 +12,7 @@ using namespace std;
 
 #define IsoBC  //if not defined, use periodicBC
 
-
+//lie group
 
 //FFT some global variables
 int NThread=8;
