@@ -12,7 +12,7 @@ using namespace std;
 
 #define IsoBC  //if not defined, use periodicBC
 
-
+//what the fuck
 
 
 //FFT some global variables
