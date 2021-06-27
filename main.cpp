@@ -82,7 +82,8 @@ float total = 0.0;//total mass of particle
 float total_array = 0.0;//total mass of grid
 float grid_mass[N][N][N] = {0.0}; //Define empty grid mass
 float num_mass[N_total][N_total][N_total];
-int indexx[n][3][2];//Define relevent indexx set
+int indexx[n][3][2];//Define relevent index set of CIC scheme
+int indexy[n][3][3];//Define relecent index set of TSC scheme
 //float phi[N][N][N]={};//Define Potential
 float grid_force_x[N][N][N]={};//Define Grid Force of Three Dimension
 float grid_force_y[N][N][N]={};
@@ -100,7 +101,7 @@ int tooshort[n][n];  //Recording whether any two particles are too close
 float dt = 0.01;       //renew every dt seconds
 float T = 0.10;        //total time(unit: second)
 float t=0.0 ;        //current time
-int edge[n][3]; //§PÂ_¸Ó²É¤l¬O§_¸I¨ìÃä¬É¡A¬O«h¬°1¡A§_«h¬°0
+int edge[n][3]; //åˆ¤æ–·è©²ç²’å­æ˜¯å¦ç¢°åˆ°é‚Šç•Œï¼Œæ˜¯å‰‡ç‚º1ï¼Œå¦å‰‡ç‚º0
 float acc[n][3]; 
 float momentum[3]; //at t=t total momentum
 // ----------------------------------------------------------------- //
@@ -444,15 +445,25 @@ void isoprint(float mat[N][N][N])
 }
 #endif
 
-//Define Weighting Function (CIC) 
+//Define Weighting Function (CIC and TSC) 
 float W(float x_p,float x_g ){
     float d=fabs(x_p-x_g);
     float w=0;
-    if (d <= dx){
-        w=1-d/dx;
-    } else{
-        w=0;
-    }
+    if (method==2){
+    	if (d <= dx){
+        	w=1-d/dx;
+    	} else{
+        	w=0;
+    	}
+    if (method==3){
+    if (method==2) {       
+        if (d <= 0.5*dx){
+            w=3.0/4.0-pow((d/dx),2);
+        } else if ( d <= 1.5*dx){
+            w=0.5*pow(3.0/2.0-d/dx,2);
+        } else{
+            w=0;
+        } 
 //    printf("%.8f \n",d);
     return w;
 }
@@ -665,7 +676,50 @@ for (int i=0 ; i<N;i++){
    }
 */
 }
+void TSC_par_mesh()//CIC for particle mesh
+{
+void TSC_par_mesh(){
+//3D Triangular-Shaped-Cloud
+    for (int i=0;i<n;i++){
+//find the index of relevent eight grid in TSC
+        for (int j=0; j<3; j++){
+            indexy[i][j][1]=lround((pos[i][j]+L/2+0.5*dx)/dx);
+            if (indexy[i][j][1]==N+1) {indexy[i][j][1]= N; }
+            indexy[i][j][0]=(indexy[i][j][1]-1+N_total)%N_total;
+            indexy[i][j][2]=(indexy[i][j][1]+1+N_total)%N_total;
+        } 
+//Mass Assignment
+        for (int j=0; j<3; j++){
+            for (int k=0; k<3; k++){
+                for (int p=0; p<3; p++){
+                    num_mass[indexy[i][0][j]][indexy[i][1][k]][indexy[i][2][p]]=num_mass[indexy[i][0][j]][indexy[i][1][k]][indexy[i][2][p]]+m[i]*W(pos[i][0],x[indexy[i][0][j]])*W(pos[i][1],y[indexy[i][1][k]])*W(pos[i][2],z[indexy[i][2][p]]);
+                }
+            }
+        }
+    }
 
+//Periodic Boundary Implement
+    for (int i=0; i<N_total ; i++){
+        for (int j=0; j<N_total ; j++){
+            for (int k=0; k<N_total ; k++){
+                if (i==0 || j==0 || k==0|| i==N_total-1||j==N_total-1||k==N_total-1){
+                    num_mass[re(i)][re(j)][re(k)]=num_mass[re(i)][re(j)][re(k)]+num_mass[i][j][k];
+                    num_mass[i][j][k]=0;
+                }
+            }
+        }        
+    }
+
+//output assignment result :grid_mass
+    for (int i=1;i<N_total-1;i++){
+        for (int j=1;j<N_total-1;j++){
+            for (int k=1;k<N_total-1;k++){
+                grid_mass[i-1][j-1][k-1]=num_mass[i][j][k];
+            }
+        }
+    }
+}	
+}
 void test_potential()//test potential 
 {
 	for (int i=0;i<N;i++){
@@ -795,11 +849,50 @@ void reset()
             }
         }
     }
+void TSC_force()//TSC for return force
+{
+//Copy the internal part
+    for (int i=1; i<1+N; i++){
+        for (int j=1; j<1+N; j++){
+            for (int k=1; k<1+N; k++){
+                num_force_x[i][j][k]=grid_force_x[i-1][j-1][k-1];
+                num_force_y[i][j][k]=grid_force_y[i-1][j-1][k-1];
+                num_force_z[i][j][k]=grid_force_z[i-1][j-1][k-1];
+            }
+        }
+    }
+//assign boundary value
+    for (int i=0; i<N_total ; i++){
+        for (int j=0; j<N_total ; j++){
+            for (int k=0; k<N_total ; k++){
+                if (i==0 || j==0 || k==0|| i==N_total-1||j==N_total-1||k==N_total-1){
+                    num_force_x[i][j][k]=num_force_x[re(i)][re(j)][re(k)];
+                    num_force_y[i][j][k]=num_force_y[re(i)][re(j)][re(k)];
+                    num_force_z[i][j][k]=num_force_z[re(i)][re(j)][re(k)];
+                }
+            }
+        }        
+    }   
+//interpolation by inverse TSC        
+    for (int i=0; i<n; i++){
+        for (int j=0; j<3; j++){
+            for (int k=0; k<3; k++){
+                for (int p=0; p<3; p++){
+                    particle_force[i][0]=particle_force[i][0]+num_force_x[indexy[i][0][j]][indexy[i][1][k]][indexy[i][2][p]]*(W(pos[i][0],x[indexy[i][0][j]])*W(pos[i][1],y[indexy[i][1][k]])*W(pos[i][2],z[indexy[i][2][p]]));
+                    particle_force[i][1]=particle_force[i][1]+num_force_y[indexy[i][0][j]][indexy[i][1][k]][indexy[i][2][p]]*(W(pos[i][0],x[indexy[i][0][j]])*W(pos[i][1],y[indexy[i][1][k]])*W(pos[i][2],z[indexy[i][2][p]]));
+                    particle_force[i][2]=particle_force[i][2]+num_force_z[indexy[i][0][j]][indexy[i][1][k]][indexy[i][2][p]]*(W(pos[i][0],x[indexy[i][0][j]])*W(pos[i][1],y[indexy[i][1][k]])*W(pos[i][2],z[indexy[i][2][p]]));    
+                }
+            }
+        }
+    }
+
+}
+}
 
 
 
 /*
-void init() //ªì©l±ø¥ó¡A¥]§t¦ì¸m¡B¨ü¤O¡B½è¶q¡A¥H¤Î¥Oªì³t«×¬°¹s¡A¦X¨Ö®É¤£¥Î©ñ
+void init() //åˆå§‹æ¢ä»¶ï¼ŒåŒ…å«ä½ç½®ã€å—åŠ›ã€è³ªé‡ï¼Œä»¥åŠä»¤åˆé€Ÿåº¦ç‚ºé›¶ï¼Œåˆä½µæ™‚ä¸ç”¨æ”¾
 {
 pos[0][0]=0.2;
 pos[0][1]=0;
@@ -830,17 +923,17 @@ m[1] = 1;
     }
 }
 */
-void boundery()//periodical Ãä¬É
+void boundery()//periodical é‚Šç•Œ
 {
     for (int p=0; p<n; p++)
             {
                 for (int d=0; d<3; d++)
                 {
-                    if(pos[p][d]>=0.5*L)//¥¿Ãä¬É
+                    if(pos[p][d]>=0.5*L)//æ­£é‚Šç•Œ
                     {
                         edge[p][d] = 1;
                     }
-                    else if(pos[p][d]<=-0.5*L)//­tÃä¬É
+                    else if(pos[p][d]<=-0.5*L)//è² é‚Šç•Œ
                     {
                         edge[p][d] = 2;
                     }
@@ -873,7 +966,7 @@ void periodic()
 
 }
 
-void distance()//­pºâ²Äp­Ó½èÂI©M²Äp+i­Ó½èÂIªº¶ZÂ÷¥­¤è¬O§_¤p©ó¤p©ó¤@©w­È(dd)¡A°}¦Ctooshort¤¤¡A1¥Nªí¶ZÂ÷¹Lªñ¡A0¥Nªí¶ZÂ÷°÷»·
+void distance()//è¨ˆç®—ç¬¬på€‹è³ªé»å’Œç¬¬p+iå€‹è³ªé»çš„è·é›¢å¹³æ–¹æ˜¯å¦å°æ–¼å°æ–¼ä¸€å®šå€¼(dd)ï¼Œé™£åˆ—tooshortä¸­ï¼Œ1ä»£è¡¨è·é›¢éè¿‘ï¼Œ0ä»£è¡¨è·é›¢å¤ é 
 {
     #pragma omp parallel
     {
@@ -897,7 +990,7 @@ void distance()//­pºâ²Äp­Ó½èÂI©M²Äp+i­Ó½èÂIªº¶ZÂ÷¥­¤è¬O§_¤p©ó¤p©ó¤@©w­È(dd)¡A°}¦
 
 
 }
-void collision()//±N¹Lªñªº¨â­Ó½èÂI°Ê¶q¥æ´«(¤£ÄYÂÔ¡A¶Èº¡¨¬°Ê¶q¦u«í)
+void collision()//å°‡éè¿‘çš„å…©å€‹è³ªé»å‹•é‡äº¤æ›(ä¸åš´è¬¹ï¼Œåƒ…æ»¿è¶³å‹•é‡å®ˆæ†)
 {
     #pragma omp parallel
     {
@@ -955,7 +1048,7 @@ void KDK()
 #endif
 
 #ifndef KD
-void DKD()//§Q¥ÎDKD§ó·s¦ì¸m¥H¤Î³t«×¡A¦A§Q¥Îdistance()©Mcollision()³B²z¶ZÂ÷¹Lªñªº½èÂI¡C®É¶¡°j°é¦b¦X¨Ö®ÉÀ³¥i¥h±¼
+void DKD()//åˆ©ç”¨DKDæ›´æ–°ä½ç½®ä»¥åŠé€Ÿåº¦ï¼Œå†åˆ©ç”¨distance()å’Œcollision()è™•ç†è·é›¢éè¿‘çš„è³ªé»ã€‚æ™‚é–“è¿´åœˆåœ¨åˆä½µæ™‚æ‡‰å¯å»æ‰
 {
    
         # pragma omp parallel
@@ -983,7 +1076,7 @@ void DKD()//§Q¥ÎDKD§ó·s¦ì¸m¥H¤Î³t«×¡A¦A§Q¥Îdistance()©Mcollision()³B²z¶ZÂ÷¹Lªñªº
 }
 #endif
 
-void total_momentum()//­pºâ¦U¤è¦VÁ`°Ê¶q, cout each direction of total momentum 
+void total_momentum()//è¨ˆç®—å„æ–¹å‘ç¸½å‹•é‡, cout each direction of total momentum 
 {
     for (int d=0; d<3; d++)
             {
@@ -1032,6 +1125,10 @@ while(t<T)
     {
         CIC_par_mesh();
     }
+    if (method == 3) 
+    {
+        TSC_par_mesh();
+    }
     total_mass_grid();
     error_mass();
 
@@ -1061,6 +1158,8 @@ while(t<T)
     if(method == 1) NGP_force();
     //CIC method
     if(method == 2) CIC_force();
+    //TSC method
+    if(method ==3) TSC_force();
 
     printf ("\n");
     
