@@ -12,14 +12,14 @@ using namespace std;
 #define REAL 0
 #define IMAG 1
 
-//#define IsoBC  //if not defined, use periodicBC
+#define IsoBC  //if not defined, use periodicBC
 
 #define KD //if not defined, use DKD to update position
 
 
 //FFT some global variables
-int NThread=8;
-const int N=4; // box N
+int NThread= 4;
+const int N=128; // box N
 const int padding=(2*N)*(2*N)*(2*N);
 const int Rseed =1234;
 float scale=1.0/(pow(static_cast<float>(N),3));
@@ -66,9 +66,9 @@ void isoprint(float[N][N][N]); //print only N*N*N
 
 // ------- define particle mesh global ------------//
 //define the const
-int method = 2 ; //(1:NGP method ; 2:CIC method ; 3:TSC method)
+int method = 2; //(1:NGP method ; 2:CIC method ; 3:TSC method)
 float G = 1.0 ;
-const int n = 1; // number of paritcle
+const int n = 2000; // number of paritcle
 //const int N = 4; // number of grid
 const int N_total=N+2;  //include boundary(buffer) 
 float L = N ;// N of box
@@ -101,7 +101,7 @@ float num_force_z[N_total][N_total][N_total]={};
 float F[n][3];         //Force on particles
 int tooshort[n][n];  //Recording whether any two particles are too close
 float dt = 0.01;       //renew every dt seconds
-float T = 0.10;        //total time(unit: second)
+float T = 0.5;        //total time(unit: second)
 float t=0.0 ;        //current time
 int edge[n][3]; //判斷該粒子是否碰到邊界，是則為1，否則為0
 float acc[n][3]; 
@@ -196,9 +196,11 @@ void deleteforperiodic()
 //   execute FFT //
 void FFT() 
 {
+    fftwf_plan_with_nthreads(NThread);
     fftwf_plan plan= fftwf_plan_dft_r2c_3d(N,N,N,rho,rhok,FFTW_ESTIMATE);
     fftwf_execute(plan);
     fftwf_destroy_plan(plan);
+    fftwf_cleanup_threads();
 #pragma omp parallel
 {
 #pragma omp for
@@ -211,7 +213,7 @@ void FFT()
 
                 float kx = (i<=N/2) ? 2.0*M_PI*i/(N) : 2.0*M_PI*(i-N)/(N);
                 float ky = (j<=N/2) ? 2.0*M_PI*j/(N) : 2.0*M_PI*(j-N)/(N);
-                float kz = 2.0*M_PI*k/(N);
+                float kz = (k<=N/2) ? 2.0*M_PI*k/(N) : 2.0*M_PI*(k-N)/(N);
                                
                 float scales=(-kx*kx-ky*ky-kz*kz-0.00000001);
                 rhok[k+zN*(j+N*i)][REAL]/=scales;
@@ -225,9 +227,11 @@ void FFT()
 //inverse FFT with normalization//
 void IRFFT()
 {
+    fftwf_plan_with_nthreads(NThread);
     fftwf_plan plan2=fftwf_plan_dft_c2r_3d(N,N,N,rhok,phi1D,FFTW_ESTIMATE);
     fftwf_execute(plan2);
     fftwf_destroy_plan(plan2);
+    fftwf_cleanup_threads();
     //   normalize, show the result   //
     bias= phi1D[0]*scale*4*M_PI;
     //cout<<"bias"<<bias;
@@ -270,9 +274,7 @@ void print(float mat[N][N][N])
                 //if(k>N/2-10 && k<N/2+10 && j>N/2-10 && j<N/2+10 && i>N/2-10 && i<N/2+10 )
                 {
                     cout<<mat[i][j][k]<<" "; 
-                    //cout<<mat[i][j][k]<<" ";
                 }
-                
             }
             cout<<endl;
             cout<<endl;
@@ -372,9 +374,11 @@ void deleteforisolated()
 
 void isoFFT()
 {
+    fftwf_plan_with_nthreads(NThread);
     fftwf_plan plan= fftwf_plan_dft_r2c_3d(2*N,2*N,2*N,isorho,isorhok,FFTW_ESTIMATE);
     fftwf_execute(plan);
     fftwf_destroy_plan(plan);
+    fftwf_cleanup_threads();
 /*
     fftwf_plan plan2= fftwf_plan_dft_r2c_3d(2*N,2*N,2*N,R,Rk,FFTW_ESTIMATE);
     fftwf_execute(plan2);
@@ -399,9 +403,11 @@ void isoFFT()
 
 void isoIRFFT()
 {
+    fftwf_plan_with_nthreads(NThread);
     fftwf_plan plan3 = fftwf_plan_dft_c2r_3d(2*N,2*N,2*N,isorhok,isophi,FFTW_ESTIMATE);
     fftwf_execute(plan3);
     fftwf_destroy_plan(plan3);
+    fftwf_cleanup_threads();
 
     //   normalize    //
 # pragma omp parallel
@@ -502,10 +508,18 @@ void inti()
     }
 
 //Define position
+    float r[n];
+    float theta[n];
+    float psi[n];
     for (int i=0;i<n;i++){
-        for (int j=0;j<3;j++){
-            pos[i][j]=L * rand() / (RAND_MAX + 1.0) + -L/2;
-        }
+        r[i]=0.5*L * rand() / (RAND_MAX + 1.0) ;
+        theta[i]=M_PI*rand() / (RAND_MAX + 1.0);
+        psi[i]= 2*M_PI*rand() / (RAND_MAX + 1.0);
+        //pos[i][j]=L * rand() / (RAND_MAX + 1.0) + -L/2;  //give random position in box
+        pos[i][0]=r[i]*sin(theta[i])*cos(psi[i]);
+        pos[i][1]=r[i]*sin(theta[i])*sin(psi[i]);
+        pos[i][2]=r[i]*cos(theta[i]);
+
     }
 
 //Define velocity
@@ -564,16 +578,20 @@ float error = total - total_array ;
 }
 
 void NGP_par_mesh()//NGP for particle mesh
-{
-	printf("method %d : NGP\n",method);
+{   
+
+	//printf("method %d : NGP\n",method);
 
 //detect the particle pos
-	# pragma omp parallel for
+//	# pragma omp parallel for
 	for (int i=0; i<n; i++){
-
-	int x_pos = floor(N*pos[i][0]+L*N/2);
-	int y_pos = floor(N*pos[i][1]+L*N/2);
-	int z_pos = floor(N*pos[i][2]+L*N/2);
+    
+    //int x_pos =floor((pos[i][0]+L/2-dx/2)/dx);
+    //int y_pos =floor((pos[i][1]+L/2-dx/2)/dx);
+    //int z_pos =floor((pos[i][2]+L/2-dx/2)/dx);
+    int x_pos =floor((pos[i][0]+L/2)/dx);
+    int y_pos =floor((pos[i][1]+L/2)/dx);
+    int z_pos =floor((pos[i][2]+L/2)/dx);
 
 //	printf ("Grid of the particle %d, x= %d, y= %d, z= %d \n",i, x_pos, y_pos, z_pos);
 	
@@ -613,7 +631,7 @@ for (int i=0 ; i<N;i++){
 
 void CIC_par_mesh()//CIC for particle mesh
 {
-printf("method %d : CIC\n",method);
+//printf("method %d : CIC\n",method);
 
 //Mass Distribution of nth particle
 //3D Cloud in Cell
@@ -621,15 +639,15 @@ printf("method %d : CIC\n",method);
 {
 	# pragma omp parallel for 
     for (int i=0;i<n;i++)
-    {
         for (int j=0; j<3; j++)//find the indexx of relevent eight grid in CIC
         {
             indexx[i][j][0]=floor((pos[i][j]+L/2-dx/2)/dx);
             indexx[i][j][0]=(indexx[i][j][0]+1+N_total)%N_total;
             indexx[i][j][1]=(indexx[i][j][0]+1)%N_total;
         } 
-    
+    }//end parallelization
 //Mass Assignment
+    for (int i=0;i<n;i++){
         for (int j=0; j<2; j++){
             for (int k=0; k<2; k++){
                 for (int p=0; p<2; p++){
@@ -638,7 +656,6 @@ printf("method %d : CIC\n",method);
             }
         }
     }
-}
 //Periodic Boundary Implement
     for (int i=0; i<N_total ; i++){
         for (int j=0; j<N_total ; j++){
@@ -654,7 +671,7 @@ printf("method %d : CIC\n",method);
 //output assignment result :grid_mass
 #pragma omp parallel
 {
-	# pragma omp parallel for 
+	# pragma omp parallel for collapse(3)
     for (int i=1;i<N_total-1;i++){
         for (int j=1;j<N_total-1;j++){
             for (int k=1;k<N_total-1;k++){
@@ -663,7 +680,7 @@ printf("method %d : CIC\n",method);
         }
     }
 }
-printf("\n");
+//printf("\n");
 
 /*
 //show the position 
@@ -693,18 +710,22 @@ for (int i=0 ; i<N;i++){
 void TSC_par_mesh()//TSC for particle mesh
 {
 //3D Triangular-Shaped-Cloud
-//#pragma omp parallel
+//    printf("method %d : NGP\n",method);
+#pragma omp parallel
 {
+    #pragma omp for
     for (int i=0;i<n;i++){
 //find the index of relevent eight grid in TSC
-        //#pragma omp for
         for (int j=0; j<3; j++){
             indexy[i][j][1]=lround((pos[i][j]+L/2+0.5*dx)/dx);
             if (indexy[i][j][1]==N+1) {indexy[i][j][1]= N; }
             indexy[i][j][0]=(indexy[i][j][1]-1+N_total)%N_total;
             indexy[i][j][2]=(indexy[i][j][1]+1+N_total)%N_total;
         }
+    }
+}//end parallelization
 //Mass Assignment
+    for (int i=0;i<n;i++){
         for (int j=0; j<3; j++){
             for (int k=0; k<3; k++){
                 for (int p=0; p<3; p++){
@@ -714,7 +735,7 @@ void TSC_par_mesh()//TSC for particle mesh
             }
         }
     }
-}
+
 
 //Periodic Boundary Implement
     for (int i=0; i<N_total ; i++){
@@ -727,8 +748,10 @@ void TSC_par_mesh()//TSC for particle mesh
             }
         }        
     }
-
+#pragma omp parallel
+{
 //output assignment result :grid_mass
+    #pragma omp for collapse(3)
     for (int i=1;i<N_total-1;i++){
         for (int j=1;j<N_total-1;j++){
             for (int k=1;k<N_total-1;k++){
@@ -736,7 +759,9 @@ void TSC_par_mesh()//TSC for particle mesh
             }
         }
     }
-}	
+}
+}
+
 
 void test_potential()//test potential 
 {
@@ -789,15 +814,19 @@ void potential_to_force()//change potential to force
 void NGP_force()//NGP for return force
 {
 	for (int i=0;i<n;i++){
-		int x_pos = floor(N*pos[i][0]+L*N/2);
-		int y_pos = floor(N*pos[i][1]+L*N/2);
-		int z_pos = floor(N*pos[i][2]+L*N/2);
+		//int x_pos =floor((pos[i][0]+L/2-dx/2)/dx);
+        //int y_pos =floor((pos[i][1]+L/2-dx/2)/dx);
+        //int z_pos =floor((pos[i][2]+L/2-dx/2)/dx);
+		
+        int x_pos =floor((pos[i][0]+L/2)/dx);
+        int y_pos =floor((pos[i][1]+L/2)/dx);
+        int z_pos =floor((pos[i][2]+L/2)/dx);
 
-		particle_force[i][0] = grid_force_x[x_pos][y_pos][z_pos];
+        particle_force[i][0] = grid_force_x[x_pos][y_pos][z_pos];
 		particle_force[i][1] = grid_force_y[x_pos][y_pos][z_pos];
 		particle_force[i][2] = grid_force_z[x_pos][y_pos][z_pos];
 
-	//	printf("the force one the particle %d\n Fx = %.2f Fy = %.2f Fz = %.2f \n",i ,particle_force[i][0],particle_force[i][1],particle_force[i][2]);
+		//printf("the force one the particle %d\n Fx = %.2f Fy = %.2f Fz = %.2f \n",i ,particle_force[i][0],particle_force[i][1],particle_force[i][2]);
 	}
 }
 
@@ -806,6 +835,7 @@ void CIC_force()//CIC for return force
 #pragma omp parallel
 {
 //Copy the internal part
+    #pragma omp for collapse(3)
     for (int i=1; i<1+N; i++){
         for (int j=1; j<1+N; j++){
             for (int k=1; k<1+N; k++){
@@ -817,7 +847,7 @@ void CIC_force()//CIC for return force
     }
 
 //assign boundary value
-	# pragma omp parallel for
+	# pragma omp for collapse(3)
     for (int i=0; i<N_total ; i++){
         for (int j=0; j<N_total ; j++){
             for (int k=0; k<N_total ; k++){
@@ -869,7 +899,10 @@ void reset()
     }
 void TSC_force()//TSC for return force
 {
+# pragma omp parallel
+{
 //Copy the internal part
+    #pragma omp for collapse(3)
     for (int i=1; i<1+N; i++){
         for (int j=1; j<1+N; j++){
             for (int k=1; k<1+N; k++){
@@ -880,6 +913,7 @@ void TSC_force()//TSC for return force
         }
     }
 //assign boundary value
+    # pragma omp for collapse(3)
     for (int i=0; i<N_total ; i++){
         for (int j=0; j<N_total ; j++){
             for (int k=0; k<N_total ; k++){
@@ -890,7 +924,9 @@ void TSC_force()//TSC for return force
                 }
             }
         }        
-    }   
+    } 
+}//end parallelization
+
 //interpolation by inverse TSC        
     for (int i=0; i<n; i++){
         for (int j=0; j<3; j++){
@@ -1092,8 +1128,8 @@ while(t<T)
     }
     if (method == 3) 
     {
-        distance();
-        collision();
+        //distance();
+        //collision();
         boundery();
         periodic();
     
@@ -1120,8 +1156,10 @@ void total_momentum()//計算各方向總動量, cout each direction of total mo
         {
                     current_momentum[d] = current_momentum[d] + m[p]*vel[p][d];
         }
-        cout<<"increased momentun "<<d<<" = "<<current_momentum[d]-momentum[d]<<endl;
+        //cout<<"increased momentun "<<d<<" = "<<pow(current_momentum[0]*current_momentum[0]+current_momentum[1]*current_momentum[1]+current_momentum[2]*current_momentum[2],0.5) <<endl;
+
     }
+    cout<<"increased momentun "<<" = "<<pow(current_momentum[0]*current_momentum[0]+current_momentum[1]*current_momentum[1]+current_momentum[2]*current_momentum[2],0.5)/n <<endl;
 }
 
 //main 
@@ -1135,8 +1173,8 @@ ti = omp_get_wtime();
 omp_set_num_threads(NThread);
 
 // ---------------- set FFTW threads ----------------- //
-fftw_init_threads();
-fftw_plan_with_nthreads(NThread);
+fftwf_init_threads();
+fftwf_plan_with_nthreads(NThread);
 
 printf("Number of Threads : %d \n \n",NThread );
 // ---------------   init particles to axis ------------------ //
@@ -1173,12 +1211,7 @@ while(t<T)
     }
     total_mass_grid();
     error_mass();
-    /*
-    for(int i=0 ; i<n+2 ;i++)
-   {
-        cout<<num_mass[i][0][0]<<"\t";
-   }
-   */
+   
 
     // -----------FFT to get potential---------------- //
     #ifndef IsoBC
@@ -1186,7 +1219,6 @@ while(t<T)
     FFT();
     IRFFT();
     D1_to_3D(phi,phi1D);
-    cout<<"phi"<<endl;
     //print(phi);
     #endif
 
@@ -1212,18 +1244,6 @@ while(t<T)
     if(method ==3) TSC_force();
 
 
-    // printf("num_force_x \n");
-    // for (int i=0;i<N;i++) {
-    //     for ( int j=0;j<N;j++){
-    //         for (int k=0;k<N;k++){
-    //             printf("%.8f",grid_mass[i][j][k]);
-    //         }
-    //         printf("\n");
-    //     }
-    //     printf("\n");
-    // }
-    
-   
 
     //  ------------------ update particle position by force at particles --------------- //
     
@@ -1234,13 +1254,13 @@ while(t<T)
     #ifndef KD
     DKD();
     #endif
-    
+    /**
     for(int i=0; i<n ; i++)
     {
-        //cout<< vel[i][0]<<" "<<vel[i][1]<<" "<<vel[i][2]<<endl;
+        cout<< vel[i][0]<<" "<<vel[i][1]<<" "<<vel[i][2]<<endl;
 
     }
-    
+    */
     total_momentum();
     
 
@@ -1251,7 +1271,7 @@ while(t<T)
         //cout<<pos[i][0]<<"\t"<<pos[i][1]<<"\t"<<pos[i][2]<<"\n"<<endl;
         Datafile<< pos[i][0]<<"\t"<<pos[i][1]<<"\t"<<pos[i][2]<<"\n";
     }
-
+    
 
     t=t+dt;
     //cout<<t<<endl;
@@ -1259,6 +1279,7 @@ while(t<T)
     
 
 }// end while
+
 // --------------- delete pointer of FFT ----------------------- //
     #ifndef IsoBC
     deleteforperiodic();
@@ -1269,7 +1290,8 @@ while(t<T)
     //time counter
     tf= omp_get_wtime() ;
     float time = tf-ti ;
-    cout<<"execution time "<<time<<endl;
+    printf("Execution time : %.8f",time);
+    //cout<<"execution time "<<time<<endl;
     Datafile.close();
     return EXIT_SUCCESS;
 
